@@ -1,0 +1,45 @@
+name: Telegram Stock Lookup
+
+on:
+  schedule:
+    # Poll for messages every 5 minutes. GitHub may delay scheduled runs.
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: telegram-stock-lookup
+  cancel-in-progress: false
+
+jobs:
+  reply-to-stock-queries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Check Telegram messages and reply with NSE quotes
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scripts/telegram_stock_lookup.py
+      - name: Save Telegram update offset
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -f state/telegram-command-state.json ]; then
+            git add state/telegram-command-state.json
+            if ! git diff --cached --quiet; then
+              git commit -m "Save Telegram stock lookup offset"
+              git push
+            fi
+          fi
