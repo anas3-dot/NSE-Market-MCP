@@ -20,9 +20,6 @@ IST = ZoneInfo("Asia/Kolkata")
 STATE_FILE = ROOT / "state" / "telegram-alert-state.json"
 LEVELS = (1.0, 2.0, 3.0, -1.0, -2.0, -3.0)
 
-# These are possible timestamp field names returned by NSE/MCP payloads.
-# The bot will use the data timestamp when available, instead of the
-# GitHub Actions / Telegram message-send time.
 TIMESTAMP_KEYS = (
     "timestamp", "timeStamp", "lastUpdateTime", "lastUpdatedTime",
     "lastUpdate", "updatedAt", "updateTime", "tradeTime",
@@ -32,8 +29,19 @@ TIMESTAMP_KEYS = (
 
 
 def unpack(result):
+    """Read either MCP structuredContent or its text content blocks."""
     if result.get("is_error"):
         raise RuntimeError("NSE MCP returned an error")
+
+    structured = result.get("structuredContent")
+    if isinstance(structured, (dict, list)) and structured:
+        return structured
+    if isinstance(structured, str) and structured.strip() not in ("", "None"):
+        try:
+            return json.loads(structured)
+        except json.JSONDecodeError:
+            pass
+
     values = []
     for item in result.get("content", []):
         raw = item.get("text") if isinstance(item, dict) else None
@@ -80,7 +88,6 @@ def number(row, names):
 
 
 def data_timestamp(payload):
-    """Find a source/data timestamp anywhere in the returned NSE payload."""
     for row in objects(payload):
         for key in TIMESTAMP_KEYS:
             value = row.get(key)
@@ -94,7 +101,6 @@ def data_timestamp(payload):
 def format_data_time(value):
     if not value:
         return None
-    # If the source already gives a readable time/date, preserve it.
     text = str(value).strip().replace("T", " ")
     if text.endswith("Z"):
         text = text[:-1] + " UTC"
@@ -103,17 +109,29 @@ def format_data_time(value):
 
 def stocks_from(payload):
     found, seen = [], set()
+    symbol_keys = (
+        "symbol", "Symbol", "tradingSymbol", "securitySymbol",
+        "symbolName", "ticker", "identifier",
+    )
+    ltp_keys = (
+        "lastPrice", "last_price", "lastTradedPrice", "ltp",
+        "LTP", "last", "price", "close", "closePrice",
+    )
+    pct_keys = (
+        "pChange", "pchange", "perChange", "percChange",
+        "changePercent", "percentChange", "percentageChange",
+        "change_percent", "%change",
+    )
     for row in objects(payload):
-        symbol = next((str(row[k]).strip() for k in
-                       ("symbol", "tradingSymbol", "securitySymbol", "symbolName")
-                       if row.get(k)), None)
+        symbol = next((str(row[k]).strip() for k in symbol_keys
+                       if row.get(k) not in (None, "")), None)
         if not symbol or symbol in seen:
             continue
-        ltp = number(row, ("lastPrice", "ltp", "last", "price", "close"))
-        pct = number(row, ("pChange", "percChange", "changePercent", "percentChange"))
+        ltp = number(row, ltp_keys)
+        pct = number(row, pct_keys)
         if pct is None:
-            change = number(row, ("change",))
-            prev = number(row, ("previousClose", "prevClose", "previous_close"))
+            change = number(row, ("change", "netChange", "changeValue"))
+            prev = number(row, ("previousClose", "prevClose", "previous_close", "previousClosingPrice"))
             if change is not None and prev:
                 pct = change / prev * 100
         if pct is None or ltp is None:
@@ -125,11 +143,19 @@ def stocks_from(payload):
 
 def nifty_from(payload):
     for row in objects(payload):
-        if str(row.get("indexName", "")).upper() == "NIFTY 50":
+        name = str(row.get("indexName", row.get("index", row.get("name", "")))).upper()
+        if name == "NIFTY 50":
             return {
-                "last": number(row, ("last", "lastPrice", "ltp", "value")),
-                "pct": number(row, ("percChange", "pChange", "changePercent")),
+                "last": number(row, ("last", "lastPrice", "ltp", "value", "currentValue")),
+                "pct": number(row, ("percChange", "pChange", "changePercent", "percentChange")),
             }
+    # Some MCP responses return the requested index quote as a single object
+    # without repeating the index name.
+    for row in objects(payload):
+        last = number(row, ("last", "lastPrice", "ltp", "value", "currentValue"))
+        pct = number(row, ("percChange", "pChange", "changePercent", "percentChange"))
+        if last is not None and pct is not None:
+            return {"last": last, "pct": pct}
     return {}
 
 
@@ -213,11 +239,10 @@ def main():
 
     if messages:
         heading = "🧪 NSE TRIAL SNAPSHOT (latest available data)" if trial_scan else "📈 NSE STOCK ALERTS"
-        if source_time:
-            timestamp_line = f"🕒 Stock data updated: {source_time}"
-        else:
-            timestamp_line = "🕒 Stock data updated: timestamp not provided by NSE/MCP"
-
+        timestamp_line = (
+            f"🕒 Stock data updated: {source_time}" if source_time
+            else "🕒 Stock data updated: timestamp not provided by NSE/MCP"
+        )
         telegram(heading + "\n" + timestamp_line + "\n\n" + "\n".join(messages[:45]))
         print(f"Telegram sent: {min(len(messages), 45)} alert(s).")
     else:
@@ -226,10 +251,8 @@ def main():
     print(f"Usable equity rows: {len(stocks)}")
     print(f"NIFTY 50 snapshot: {nifty}")
     print("Top gainers/losers payload retrieved for validation; unusual-volume alerts are not enabled yet.")
-    if source_time:
-        print(f"Source data timestamp: {source_time}")
-    else:
-        print("NSE/MCP did not provide a source timestamp in the returned payload.")
+    print(f"Source data timestamp: {source_time}" if source_time else
+          "NSE/MCP did not provide a source timestamp in the returned payload.")
 
 
 if __name__ == "__main__":
