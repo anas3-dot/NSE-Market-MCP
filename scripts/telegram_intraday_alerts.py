@@ -159,6 +159,22 @@ def nifty_from(payload):
     return {}
 
 
+
+def fetch_watchlist():
+    url = os.environ.get("WATCHLIST_URL", "").strip()
+    key = os.environ.get("WATCHLIST_ACCESS_KEY", "").strip()
+    if not url or not key:
+        raise RuntimeError("Missing WATCHLIST_URL or WATCHLIST_ACCESS_KEY GitHub secret.")
+    request = urllib.request.Request(
+        url,
+        headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=20) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    symbols = payload.get("symbols", []) if isinstance(payload, dict) else []
+    return {str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()}
+
+
 def load_state(day):
     try:
         state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
@@ -207,7 +223,9 @@ def main():
 
     day = now.strftime("%Y-%m-%d")
     equity_data, nifty_data, movers_data = asyncio.run(fetch_all())
-    stocks = stocks_from(equity_data)
+    watchlist = fetch_watchlist()
+    all_stocks = stocks_from(equity_data)
+    stocks = [stock for stock in all_stocks if stock["symbol"].upper() in watchlist]
     nifty = nifty_from(nifty_data)
     source_time = format_data_time(
         data_timestamp(equity_data) or data_timestamp(nifty_data) or data_timestamp(movers_data)
@@ -248,9 +266,10 @@ def main():
     else:
         print("Scan completed. No new threshold crossings.")
 
-    print(f"Usable equity rows: {len(stocks)}")
+    print(f"Usable equity rows: {len(all_stocks)}")
+    print(f"Watchlist symbols: {len(watchlist)}; matched: {len(stocks)}")
     print(f"NIFTY 50 snapshot: {nifty}")
-    print("Top gainers/losers payload retrieved for validation; unusual-volume alerts are not enabled yet.")
+    print("Only watchlist stocks are checked for price alerts. Unusual-volume alerts are not enabled yet.")
     print(f"Source data timestamp: {source_time}" if source_time else
           "NSE/MCP did not provide a source timestamp in the returned payload.")
 
