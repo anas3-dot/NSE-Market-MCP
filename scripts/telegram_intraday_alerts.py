@@ -168,7 +168,11 @@ def fetch_watchlist():
         raise RuntimeError("Missing WATCHLIST_URL or WATCHLIST_ACCESS_KEY GitHub secret.")
     request = urllib.request.Request(
         url,
-        headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        },
     )
     try:
         with urllib.request.urlopen(request, timeout=20) as response:
