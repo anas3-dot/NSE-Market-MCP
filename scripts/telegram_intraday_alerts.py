@@ -61,7 +61,6 @@ async def nse(tool, args):
 async def fetch_all():
     return await asyncio.gather(
         nse("cm_get_equity_stocks", {"limit": 500, "symbolFilter": ""}),
-        nse("cm_get_index_quote", {"indexName": "NIFTY 50"}),
         nse("nse_get_market_movers", {"indexName": "", "limit": 10}),
     )
 
@@ -202,8 +201,9 @@ def load_state(day):
     except (FileNotFoundError, json.JSONDecodeError):
         state = {}
     if state.get("date") != day:
-        state = {"date": day, "previous_pct": {}, "nifty_alerted": False}
+        state = {"date": day, "previous_pct": {}, "daily_report_sent": False}
     state.setdefault("previous_pct", {})
+    state.setdefault("daily_report_sent", False)
     return state
 
 
@@ -243,7 +243,7 @@ def main():
         return
 
     day = now.strftime("%Y-%m-%d")
-    equity_data, nifty_data, movers_data = asyncio.run(fetch_all())
+    equity_data, movers_data = asyncio.run(fetch_all())
     watchlist = fetch_watchlist()
     all_stocks = stocks_from(equity_data)
     stocks_by_symbol = {stock["symbol"].strip().upper(): stock for stock in all_stocks}
@@ -256,12 +256,11 @@ def main():
               if symbol in stocks_by_symbol]
     print(f"DEBUG watchlist symbols: {sorted(watchlist)}")
     print(f"DEBUG NSE matched symbols: {[stock['symbol'] for stock in stocks]}")
-    nifty = nifty_from(nifty_data)
     source_time = format_data_time(
-        data_timestamp(equity_data) or data_timestamp(nifty_data) or data_timestamp(movers_data)
+        data_timestamp(equity_data) or data_timestamp(movers_data)
     )
 
-    if not stocks and nifty.get("pct") is None:
+    if not all_stocks and not stocks:
         raise RuntimeError("No usable NSE data received; no Telegram alert sent.")
 
     state = load_state(day)
@@ -277,13 +276,29 @@ def main():
                 messages.append(f"{arrow} {symbol} crossed {level:+g}% | Now {pct:+.2f}% | ₹{stock['ltp']:.2f}")
         previous[symbol] = round(pct, 4)
 
-    if nifty.get("pct") is not None and abs(nifty["pct"]) >= 0.5 and not state.get("nifty_alerted"):
-        messages.append(f"📊 NIFTY 50: {nifty.get('last') or 0:,.2f} ({nifty['pct']:+.2f}%)")
-        state["nifty_alerted"] = True
-
     state["previous_pct"] = previous
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+
+    # Send one end-of-day report, with the personal watchlist shown first.
+    is_daily_report_time = now.weekday() < 5 and (now.hour * 60 + now.minute) >= (15 * 60 + 30)
+    if is_daily_report_time and not state.get("daily_report_sent"):
+        gainers = sorted(all_stocks, key=lambda item: item["pct"], reverse=True)[:10]
+        losers = sorted(all_stocks, key=lambda item: item["pct"])[:10]
+        report = ["📊 NSE DAILY MARKET REPORT", ""]
+        report.append("⭐ YOUR WATCHLIST")
+        if stocks:
+            report.extend(f"• {s['symbol']} — ₹{s['ltp']:.2f} ({s['pct']:+.2f}%)" for s in stocks)
+        else:
+            report.append("No watchlist stocks matched in the latest NSE data.")
+        report.extend(["", "🟢 TOP 10 GAINERS"])
+        report.extend(f"{i}. {s['symbol']} — {s['pct']:+.2f}% (₹{s['ltp']:.2f})" for i, s in enumerate(gainers, 1))
+        report.extend(["", "🔴 TOP 10 LOSERS"])
+        report.extend(f"{i}. {s['symbol']} — {s['pct']:+.2f}% (₹{s['ltp']:.2f})" for i, s in enumerate(losers, 1))
+        report.extend(["", f"🕒 Data: {source_time or 'timestamp unavailable'}", "Source: NSE MCP (up to 500 EQ stocks)"])
+        telegram("\n".join(report))
+        state["daily_report_sent"] = True
+        print("Daily NSE market report sent.")
 
     if messages:
         heading = "🧪 NSE TRIAL SNAPSHOT (latest available data)" if trial_scan else "📈 NSE STOCK ALERTS"
@@ -298,7 +313,6 @@ def main():
 
     print(f"Usable equity rows: {len(all_stocks)}")
     print(f"Watchlist symbols: {len(watchlist)}; matched: {len(stocks)}")
-    print(f"NIFTY 50 snapshot: {nifty}")
     print("Only watchlist stocks are checked for price alerts. Unusual-volume alerts are not enabled yet.")
     print(f"Source data timestamp: {source_time}" if source_time else
           "NSE/MCP did not provide a source timestamp in the returned payload.")
