@@ -8,6 +8,11 @@ on:
         required: true
         type: boolean
         default: false
+      send_daily_report:
+        description: 'Send the market report to Telegram now'
+        required: true
+        type: boolean
+        default: false
   schedule:
     # Every 30 minutes in the NSE cash session (IST, Monday-Friday).
     - cron: "0,30 4-9 * * 1-5"
@@ -46,6 +51,7 @@ jobs:
           WATCHLIST_ACCESS_KEY: ${{ secrets.WATCHLIST_ACCESS_KEY }}
           TELEGRAM_TEST_ONLY: ${{ inputs.test_telegram && 'true' || 'false' }}
           TELEGRAM_TRIAL_SCAN: ${{ github.event_name == 'workflow_dispatch' }}
+          TELEGRAM_SEND_DAILY_REPORT: ${{ inputs.send_daily_report && 'true' || 'false' }}
         run: python scripts/telegram_intraday_alerts.py
       - name: Save alert state
         run: |
