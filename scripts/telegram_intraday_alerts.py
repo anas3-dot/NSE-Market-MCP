@@ -136,6 +136,11 @@ def telegram(message):
 
 
 def main():
+    if os.environ.get('TELEGRAM_TEST_ONLY', 'false').lower() == 'true':
+        telegram('✅ Telegram connection successful! Your NSE stock-alert bot is connected.')
+        print('Telegram test message sent successfully.')
+        return
+
     now = datetime.now(IST)
     if now.weekday() >= 5 or not (9 * 60 + 15 <= now.hour * 60 + now.minute <= 15 * 60 + 30):
         print("Outside NSE cash-market hours; no scan performed.")
