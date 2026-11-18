@@ -48,8 +48,12 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add state/telegram-alert-state.json
-          if ! git diff --cached --quiet; then
-            git commit -m "Update Telegram alert state"
-            git push
+          if [ -f state/telegram-alert-state.json ]; then
+            git add state/telegram-alert-state.json
+            if ! git diff --cached --quiet; then
+              git commit -m "Update Telegram alert state"
+              git push
+            fi
+          else
+            echo "No alert state file created; nothing to save."
           fi
