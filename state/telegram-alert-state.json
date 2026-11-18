@@ -503,5 +503,6 @@
     "ENERGYDEV": 2.24,
     "RELIANCE": -0.29
   },
-  "nifty_alerted": true
+  "nifty_alerted": true,
+  "daily_report_sent": true
 }
