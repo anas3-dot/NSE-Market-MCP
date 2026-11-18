@@ -500,7 +500,8 @@
     "HISARMETAL": 1.73,
     "FRACTAL": -0.69,
     "GENUSPAPER": 1.5,
-    "ENERGYDEV": 2.24
+    "ENERGYDEV": 2.24,
+    "RELIANCE": -0.29
   },
   "nifty_alerted": true
 }
