@@ -302,6 +302,7 @@ def main():
         report.extend(["", f"🕒 Data: {source_time or 'timestamp unavailable'}", "Source: NSE MCP (up to 500 EQ stocks)"])
         telegram("\n".join(report))
         state["daily_report_sent"] = True
+        STATE_FILE.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
         print("Daily NSE market report sent.")
 
     if messages:
