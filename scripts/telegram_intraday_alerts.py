@@ -66,6 +66,15 @@ async def fetch_all():
     )
 
 
+async def fetch_watchlist_quotes(symbols):
+    if not symbols:
+        return []
+    return await asyncio.gather(*(
+        nse("cm_get_stock_quote", {"symbol": symbol})
+        for symbol in sorted(symbols)
+    ))
+
+
 def objects(value):
     if isinstance(value, dict):
         yield value
@@ -108,7 +117,7 @@ def format_data_time(value):
     return text
 
 
-def stocks_from(payload):
+def stocks_from(payload, symbol_override=None):
     found, seen = [], set()
     symbol_keys = (
         "symbol", "Symbol", "tradingSymbol", "securitySymbol",
@@ -125,7 +134,7 @@ def stocks_from(payload):
     )
     for row in objects(payload):
         symbol = next((str(row[k]).strip() for k in symbol_keys
-                       if row.get(k) not in (None, "")), None)
+                       if row.get(k) not in (None, "")), symbol_override)
         if not symbol or symbol in seen:
             continue
         ltp = number(row, ltp_keys)
@@ -237,10 +246,16 @@ def main():
     equity_data, nifty_data, movers_data = asyncio.run(fetch_all())
     watchlist = fetch_watchlist()
     all_stocks = stocks_from(equity_data)
-    stocks = [stock for stock in all_stocks if stock["symbol"].upper() in watchlist]
+    stocks_by_symbol = {stock["symbol"].strip().upper(): stock for stock in all_stocks}
+    quote_payloads = asyncio.run(fetch_watchlist_quotes(watchlist))
+    for symbol, payload in zip(sorted(watchlist), quote_payloads):
+        quote_rows = stocks_from(payload, symbol_override=symbol)
+        if quote_rows:
+            stocks_by_symbol[symbol] = quote_rows[0]
+    stocks = [stocks_by_symbol[symbol] for symbol in sorted(watchlist)
+              if symbol in stocks_by_symbol]
     print(f"DEBUG watchlist symbols: {sorted(watchlist)}")
-    sample_symbols = [stock["symbol"] for stock in all_stocks[:20]]
-    print(f"DEBUG sample NSE symbols: {sample_symbols}")
+    print(f"DEBUG NSE matched symbols: {[stock['symbol'] for stock in stocks]}")
     nifty = nifty_from(nifty_data)
     source_time = format_data_time(
         data_timestamp(equity_data) or data_timestamp(nifty_data) or data_timestamp(movers_data)
