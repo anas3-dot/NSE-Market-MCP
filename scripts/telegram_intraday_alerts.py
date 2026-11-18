@@ -281,12 +281,13 @@ def main():
     STATE_FILE.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
 
     # Send one end-of-day report, with the personal watchlist shown first.
-    is_daily_report_time = (
+    manual_report = os.environ.get("TELEGRAM_SEND_DAILY_REPORT", "false").lower() == "true"
+    is_scheduled_report_time = (
         os.environ.get("GITHUB_EVENT_NAME") == "schedule"
         and now.weekday() < 5
         and (now.hour * 60 + now.minute) >= (15 * 60 + 30)
     )
-    if is_daily_report_time and not state.get("daily_report_sent"):
+    if manual_report or (is_scheduled_report_time and not state.get("daily_report_sent")):
         gainers = sorted(all_stocks, key=lambda item: item["pct"], reverse=True)[:10]
         losers = sorted(all_stocks, key=lambda item: item["pct"])[:10]
         report = ["📊 NSE DAILY MARKET REPORT", ""]
