@@ -238,6 +238,8 @@ def main():
     watchlist = fetch_watchlist()
     all_stocks = stocks_from(equity_data)
     stocks = [stock for stock in all_stocks if stock["symbol"].upper() in watchlist]
+    print(f"DEBUG watchlist symbols: {sorted(watchlist)}")
+    print(f"DEBUG sample NSE symbols: {[stock[\"symbol\"] for stock in all_stocks[:20]]}")
     nifty = nifty_from(nifty_data)
     source_time = format_data_time(
         data_timestamp(equity_data) or data_timestamp(nifty_data) or data_timestamp(movers_data)
