@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime
@@ -169,8 +170,15 @@ def fetch_watchlist():
         url,
         headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
     )
-    with urllib.request.urlopen(request, timeout=20) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        # Show the endpoint's response without ever logging request headers or secrets.
+        body = exc.read(500).decode("utf-8", errors="replace").replace("\\n", " ")
+        raise RuntimeError(
+            f"Watchlist endpoint returned HTTP {exc.code}; response: {body[:500]}"
+        ) from None
     symbols = payload.get("symbols", []) if isinstance(payload, dict) else []
     return {str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()}
 
