@@ -42,7 +42,8 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TELEGRAM_TEST_ONLY: ${{ github.event_name == 'workflow_dispatch' }}
+          TELEGRAM_TEST_ONLY: 'false'
+          TELEGRAM_TRIAL_SCAN: ${{ github.event_name == 'workflow_dispatch' }}
         run: python scripts/telegram_intraday_alerts.py
       - name: Save alert state
         run: |
