@@ -142,7 +142,8 @@ def main():
         return
 
     now = datetime.now(IST)
-    if now.weekday() >= 5 or not (9 * 60 + 15 <= now.hour * 60 + now.minute <= 15 * 60 + 30):
+    trial_scan = os.environ.get("TELEGRAM_TRIAL_SCAN", "false").lower() == "true"
+    if not trial_scan and (now.weekday() >= 5 or not (9 * 60 + 15 <= now.hour * 60 + now.minute <= 15 * 60 + 30)):
         print("Outside NSE cash-market hours; no scan performed.")
         return
 
@@ -176,7 +177,8 @@ def main():
 
     if messages:
         stamp = now.strftime("%d %b %Y, %I:%M %p IST")
-        telegram("📈 NSE STOCK ALERTS | " + stamp + "\n\n" + "\n".join(messages[:45]))
+        heading = "🧪 NSE TRIAL SNAPSHOT (latest available data; market closed)" if trial_scan else "📈 NSE STOCK ALERTS"
+        telegram(heading + " | checked " + stamp + "\n\n" + "\n".join(messages[:45]))
         print(f"Telegram sent: {min(len(messages), 45)} alert(s).")
     else:
         print("Scan completed. No new threshold crossings.")
