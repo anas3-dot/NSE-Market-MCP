@@ -20,6 +20,16 @@ IST = ZoneInfo("Asia/Kolkata")
 STATE_FILE = ROOT / "state" / "telegram-alert-state.json"
 LEVELS = (1.0, 2.0, 3.0, -1.0, -2.0, -3.0)
 
+# These are possible timestamp field names returned by NSE/MCP payloads.
+# The bot will use the data timestamp when available, instead of the
+# GitHub Actions / Telegram message-send time.
+TIMESTAMP_KEYS = (
+    "timestamp", "timeStamp", "lastUpdateTime", "lastUpdatedTime",
+    "lastUpdate", "updatedAt", "updateTime", "tradeTime",
+    "tradedTime", "dataTime", "asOf", "asOfTime", "dateTime",
+    "exchangeTimestamp", "marketTime",
+)
+
 
 def unpack(result):
     if result.get("is_error"):
@@ -67,6 +77,28 @@ def number(row, names):
         except (ValueError, TypeError):
             continue
     return None
+
+
+def data_timestamp(payload):
+    """Find a source/data timestamp anywhere in the returned NSE payload."""
+    for row in objects(payload):
+        for key in TIMESTAMP_KEYS:
+            value = row.get(key)
+            if value not in (None, ""):
+                text = str(value).strip()
+                if text:
+                    return text
+    return None
+
+
+def format_data_time(value):
+    if not value:
+        return None
+    # If the source already gives a readable time/date, preserve it.
+    text = str(value).strip().replace("T", " ")
+    if text.endswith("Z"):
+        text = text[:-1] + " UTC"
+    return text
 
 
 def stocks_from(payload):
@@ -136,9 +168,9 @@ def telegram(message):
 
 
 def main():
-    if os.environ.get('TELEGRAM_TEST_ONLY', 'false').lower() == 'true':
-        telegram('✅ Telegram connection successful! Your NSE stock-alert bot is connected.')
-        print('Telegram test message sent successfully.')
+    if os.environ.get("TELEGRAM_TEST_ONLY", "false").lower() == "true":
+        telegram("✅ Telegram connection successful! Your NSE stock-alert bot is connected.")
+        print("Telegram test message sent successfully.")
         return
 
     now = datetime.now(IST)
@@ -151,6 +183,10 @@ def main():
     equity_data, nifty_data, movers_data = asyncio.run(fetch_all())
     stocks = stocks_from(equity_data)
     nifty = nifty_from(nifty_data)
+    source_time = format_data_time(
+        data_timestamp(equity_data) or data_timestamp(nifty_data) or data_timestamp(movers_data)
+    )
+
     if not stocks and nifty.get("pct") is None:
         raise RuntimeError("No usable NSE data received; no Telegram alert sent.")
 
@@ -176,9 +212,13 @@ def main():
     STATE_FILE.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
 
     if messages:
-        stamp = now.strftime("%d %b %Y, %I:%M %p IST")
-        heading = "🧪 NSE TRIAL SNAPSHOT (latest available data; market closed)" if trial_scan else "📈 NSE STOCK ALERTS"
-        telegram(heading + " | checked " + stamp + "\n\n" + "\n".join(messages[:45]))
+        heading = "🧪 NSE TRIAL SNAPSHOT (latest available data)" if trial_scan else "📈 NSE STOCK ALERTS"
+        if source_time:
+            timestamp_line = f"🕒 Stock data updated: {source_time}"
+        else:
+            timestamp_line = "🕒 Stock data updated: timestamp not provided by NSE/MCP"
+
+        telegram(heading + "\n" + timestamp_line + "\n\n" + "\n".join(messages[:45]))
         print(f"Telegram sent: {min(len(messages), 45)} alert(s).")
     else:
         print("Scan completed. No new threshold crossings.")
@@ -186,7 +226,10 @@ def main():
     print(f"Usable equity rows: {len(stocks)}")
     print(f"NIFTY 50 snapshot: {nifty}")
     print("Top gainers/losers payload retrieved for validation; unusual-volume alerts are not enabled yet.")
-    print("NSE data may be delayed; check the exchange timestamp before acting.")
+    if source_time:
+        print(f"Source data timestamp: {source_time}")
+    else:
+        print("NSE/MCP did not provide a source timestamp in the returned payload.")
 
 
 if __name__ == "__main__":
