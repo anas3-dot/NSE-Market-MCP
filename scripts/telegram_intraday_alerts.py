@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """NSE intraday snapshots -> personal Telegram alerts. Runs from GitHub Actions."""
 from __future__ import annotations
@@ -20,10 +19,7 @@ from nse_mcp import call_tool  # noqa: E402
 
 IST = ZoneInfo("Asia/Kolkata")
 STATE_FILE = ROOT / "state" / "telegram-alert-state.json"
-
-# Fixed percentage alerts are disabled.
-# Custom profit/loss alerts are now managed by Cloudflare Worker.
-LEVELS = ()
+LEVELS = (1.0, 2.0, 3.0, -1.0, -2.0, -3.0)
 
 TIMESTAMP_KEYS = (
     "timestamp", "timeStamp", "lastUpdateTime", "lastUpdatedTime",
@@ -172,6 +168,7 @@ def nifty_from(payload):
     return {}
 
 
+
 def fetch_watchlist():
     url = os.environ.get("WATCHLIST_URL", "").strip()
     key = os.environ.get("WATCHLIST_ACCESS_KEY", "").strip()
@@ -268,11 +265,15 @@ def main():
 
     state = load_state(day)
     previous = state["previous_pct"]
+    messages = []
 
-    # Old fixed percentage price alerts are disabled.
-    # Custom price alerts are now checked by the Cloudflare Worker.
     for stock in stocks:
         symbol, pct = stock["symbol"], stock["pct"]
+        old = previous.get(symbol)
+        for level in LEVELS:
+            if crossed(old, pct, level):
+                arrow = "▲" if level > 0 else "▼"
+                messages.append(f"{arrow} {symbol} crossed {level:+g}% | Now {pct:+.2f}% | ₹{stock['ltp']:.2f}")
         previous[symbol] = round(pct, 4)
 
     state["previous_pct"] = previous
@@ -305,10 +306,20 @@ def main():
         STATE_FILE.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
         print("Daily NSE market report sent.")
 
-    print("NSE scan completed. Fixed percentage alerts are disabled.")
+    if messages:
+        heading = "🧪 NSE TRIAL SNAPSHOT (latest available data)" if trial_scan else "📈 NSE STOCK ALERTS"
+        timestamp_line = (
+            f"🕒 Stock data updated: {source_time}" if source_time
+            else "🕒 Stock data updated: timestamp not provided by NSE/MCP"
+        )
+        telegram(heading + "\n" + timestamp_line + "\n\n" + "\n".join(messages[:45]))
+        print(f"Telegram sent: {min(len(messages), 45)} alert(s).")
+    else:
+        print("Scan completed. No new threshold crossings.")
+
     print(f"Usable equity rows: {len(all_stocks)}")
     print(f"Watchlist symbols: {len(watchlist)}; matched: {len(stocks)}")
-    print("Custom profit/loss alerts are managed by Cloudflare Worker.")
+    print("Only watchlist stocks are checked for price alerts. Unusual-volume alerts are not enabled yet.")
     print(f"Source data timestamp: {source_time}" if source_time else
           "NSE/MCP did not provide a source timestamp in the returned payload.")
 
